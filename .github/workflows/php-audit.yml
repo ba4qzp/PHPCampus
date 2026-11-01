@@ -1,16 +1,12 @@
 name: PHPCampus 全量体检
-
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: 配置 PHP 8.4
         uses: shivammathur/setup-php@v2
@@ -33,23 +29,27 @@ jobs:
             issues=()
 
             if ! php -l "$f" >/tmp/l.out 2>&1; then
-              issues+=("语法错误: $(grep -oP 'on line \K[0-9]+' /tmp/l.out | head -1)")
+              line=$(grep -oP 'on line \K[0-9]+' /tmp/l.out | head -1)
+              issues+=("语法错误: ${line:-?}")
             fi
 
-            pe=$(grep -c 'page_end()' "$f" 2>/dev/null || echo 0)
+            pe=$(grep -c 'page_end()' "$f" 2>/dev/null)
+            pe=${pe:-0}
             [ "$pe" -gt 1 ] && issues+=("page_end()×$pe")
 
             if grep -q 'page_end()' "$f"; then
               tail=$(awk '/page_end\(\)/{f=1;next} f' "$f" | grep -v '^\s*$')
-              [ -n "$tail" ] && issues+=("page_end 后有 $(echo "$tail"|wc -l) 行残留")
+              tn=$(echo "$tail" | grep -c . 2>/dev/null)
+              tn=${tn:-0}
+              [ "$tn" -gt 0 ] && issues+=("page_end 后有 $tn 行残留")
             fi
 
-            fw=$(grep -o 'foreach\s*(' "$f" | wc -l)
-            fe=$(grep -o 'endforeach' "$f" | wc -l)
+            fw=$(grep -o 'foreach\s*(' "$f" | grep -c . 2>/dev/null); fw=${fw:-0}
+            fe=$(grep -o 'endforeach' "$f" | grep -c . 2>/dev/null); fe=${fe:-0}
             [ "$fw" -ne "$fe" ] && issues+=("foreach:$fw≠endforeach:$fe")
 
-            iw=$(grep -oE '\bif\s*\(' "$f" | wc -l)
-            ie=$(grep -oE '\bendif' "$f" | wc -l)
+            iw=$(grep -oE '\bif\s*\(' "$f" | grep -c . 2>/dev/null); iw=${iw:-0}
+            ie=$(grep -oE '\bendif' "$f" | grep -c . 2>/dev/null); ie=${ie:-0}
             [ "$ie" -gt "$iw" ] && issues+=("endif:$ie 多于 if:$iw")
 
             if grep -qE '(如果|否则|结束如果|结束循环|结束遍历)' "$f"; then
@@ -57,9 +57,11 @@ jobs:
             fi
 
             dup=$(awk 'NF && !/^[}{]$/ && $0==prev{c++} {prev=$0} END{print c+0}' "$f")
+            dup=${dup:-0}
             [ "$dup" -gt 10 ] && issues+=("重复行×$dup")
 
-            sz=$(wc -c < "$f")
+            sz=$(wc -c < "$f" 2>/dev/null)
+            sz=${sz:-0}
             [ "$sz" -lt 50 ] && issues+=("文件过小 ${sz}B")
 
             if [ ${#issues[@]} -gt 0 ]; then
