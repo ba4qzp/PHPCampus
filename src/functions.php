@@ -9,7 +9,8 @@ function ensure_dirs(){
 
     $htaccess = $upload_dir . '/.htaccess';
     if(!file_exists($htaccess)){
-        $rules = "Options -ExecCGI\nAddHandler cgi-script .php .php3 .phtml .pht .phar .pl .py .jsp .asp .htm .shtml .sh .cgi\nSetHandler none\n";
+        // ★ 移除了 InfinityFree 不支持的 Options -ExecCGI
+        $rules = "AddHandler cgi-script .php .php3 .phtml .pht .phar .pl .py .jsp .asp .htm .shtml .sh .cgi\nSetHandler none\n";
         @file_put_contents($htaccess, $rules);
     }
 }
