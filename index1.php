@@ -5,16 +5,49 @@ $uid = (int)$_SESSION['uid'];
 $stmt = $pdo->prepare('SELECT * FROM users WHERE uid = ?'); $stmt->execute([$uid]); $urow = $stmt->fetch();
 $with = isset($_GET['with']) ? (int)$_GET['with'] : 0;
 
+// 获取总未读数
 $stmt = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE to_uid = ? AND is_read = 0 AND deleted = 0'); $stmt->execute([$uid]);
 $unread = (int)$stmt->fetchColumn();
 
 if($with){ $pdo->prepare('UPDATE messages SET is_read = 1 WHERE to_uid = ? AND from_uid = ?')->execute([$uid, $with]); }
 
+// 获取最近有过联系的人（列表红点）
+$contacts = [];
+$stmt_c = $pdo->prepare("
+    SELECT u.uid, u.username, u.nickname,
+    (SELECT COUNT(*) FROM messages WHERE from_uid = u.uid AND to_uid = ? AND is_read = 0 AND deleted = 0) AS unread_count
+    FROM users u
+    WHERE u.uid IN (
+        SELECT from_uid FROM messages WHERE to_uid = ? 
+        UNION 
+        SELECT to_uid FROM messages WHERE from_uid = ?
+    ) AND u.uid != ?
+    ORDER BY u.uid DESC LIMIT 10
+");
+$stmt_c->execute([$uid, $uid, $uid, $uid]);
+$contacts = $stmt_c->fetchAll();
+
 page_head('私聊'); ?>
 <div class="nav"><b>私聊</b> <span class="badge-unread" id="navUnread" style="<?=$unread?'':'display:none'?>"><?=$unread?></span></div>
 <div class="card">
     <form method="get"><input type="text" name="with" placeholder="输入对方 UID" value="<?=$with?:''?>"><button type="submit">找人</button></form>
+    
+    <!-- ★ 最近联系人列表（红点显示） -->
+    <?php if($contacts): ?>
+    <div style="margin-top:10px;border-top:1px dashed #eee;padding-top:10px;font-size:13px;">
+        <div style="color:#888;margin-bottom:5px;">最近联系人：</div>
+        <?php foreach($contacts as $c): ?>
+            <a href="?with=<?=$c['uid']?>" style="display:inline-block;margin-right:10px;margin-bottom:5px;padding:4px 8px;background:#f3f4f6;border-radius:4px;text-decoration:none;color:#333;">
+                <?=h(show_name($c))?>
+                <?php if($c['unread_count'] > 0): ?>
+                    <span style="background:red;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px;"><?=$c['unread_count']?></span>
+                <?php endif; ?>
+            </a>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 </div>
+
 <?php 
 if($with > 0) {
     $stmt = $pdo->prepare('SELECT uid, username, nickname FROM users WHERE uid = ?'); 
@@ -22,7 +55,6 @@ if($with > 0) {
     $withUser = $stmt->fetch();
     
     if($withUser) {
-        // ★ 绕过 WAF 的 300 条抓取逻辑：分别取 300 条，合并后按 mid 排序，再截取最后 300 条
         $stmt1 = $pdo->prepare('SELECT * FROM messages WHERE from_uid = ? AND to_uid = ? ORDER BY mid DESC LIMIT 300');
         $stmt1->execute([$uid, $with]);
         $msg1 = $stmt1->fetchAll();
@@ -32,10 +64,8 @@ if($with > 0) {
         $msg2 = $stmt2->fetchAll();
 
         $conv = array_merge($msg1, $msg2);
-        usort($conv, function($a, $b) { return $a['mid'] - $b['mid']; }); // 按时间正序
-        if (count($conv) > 300) {
-            $conv = array_slice($conv, -300); // 只保留最近 300 条
-        }
+        usort($conv, function($a, $b) { return $a['mid'] - $b['mid']; }); 
+        if (count($conv) > 300) { $conv = array_slice($conv, -300); }
 ?>
     <div class="card">
         <h3>与 <?=h(show_name($withUser))?> 的对话</h3>
@@ -43,13 +73,11 @@ if($with > 0) {
             <?php foreach($conv as $m): $mine = ((int)$m['from_uid'] === $uid); ?>
                 <div style="display:flex;<?=$mine?'justify-content:flex-end':''?>;margin-bottom:10px;" data-mid="<?=$m['mid']?>">
                     <div class="msg-bubble <?=$mine?'msg-me':'msg-other'?>" style="max-width:80%;">
-                        <!-- 时间显示 -->
                         <div style="font-size:10px;color:#888;margin-bottom:2px;"><?=date('m-d H:i', strtotime($m['created_at']))?></div>
                         
                         <?php if($m['deleted']): ?>
                             <div style="color:#999;font-style:italic">[该消息已撤回]</div>
                         <?php else: ?>
-                            <!-- 引用显示 -->
                             <?php if(!empty($m['reply_to'])): 
                                 $rstmt = $pdo->prepare('SELECT content FROM messages WHERE mid = ?'); 
                                 $rstmt->execute([$m['reply_to']]); 
@@ -61,7 +89,6 @@ if($with > 0) {
                                 </div>
                             <?php endif; ?>
 
-                            <!-- 内容显示：使用 nl2br 保留换行 -->
                             <div class="md"><?=nl2br(h($m['content']))?></div>
                             
                             <?php if($m['file_path']): ?>
@@ -72,7 +99,6 @@ if($with > 0) {
                                 <?php endif; ?>
                             <?php endif; ?>
                             
-                            <!-- 操作按钮 -->
                             <div style="font-size:11px;margin-top:4px;text-align:right;">
                                 <a href="javascript:void(0)" onclick="quoteMsg(<?=$m['mid']?>, this)" style="color:#2563eb;">引用</a>
                                 <?php if($mine && time() - strtotime($m['created_at']) < 120): ?>
@@ -112,10 +138,8 @@ if($with > 0) {
     window.addEventListener('load', scrollBottom);
     
     function quoteMsg(mid, el) {
-        // 拿到气泡内 .md 元素的文本内容，并去除多余的换行
         var mdDiv = el.closest('.msg-bubble').querySelector('.md');
         var content = mdDiv ? mdDiv.innerText.replace(/\n/g, ' ') : '';
-        
         document.getElementById('replyToInput').value = mid;
         document.getElementById('quoteText').innerText = content.substring(0, 20) + '...';
         document.getElementById('quotePreview').style.display = 'block';
@@ -143,6 +167,36 @@ if($with > 0) {
             });
     }
 
+    function addBubble(role, content, imagePath, isFirst){
+        var wrap = document.createElement('div');
+        wrap.style.display = 'flex';
+        wrap.style.marginBottom = '10px';
+        if(role === 'me'){ wrap.style.justifyContent = 'flex-end'; }
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble ' + (role === 'me' ? 'msg-me' : 'msg-other');
+        bubble.style.maxWidth = '80%';
+        
+        var timeDiv = document.createElement('div');
+        timeDiv.style.cssText = 'font-size:10px;color:#888;margin-bottom:2px;';
+        var now = new Date();
+        timeDiv.innerText = (now.getMonth()+1) + '-' + now.getDate() + ' ' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+        bubble.appendChild(timeDiv);
+
+        if(imagePath){
+            var img = document.createElement('img');
+            img.src = imagePath; img.style.maxWidth = '100%'; img.style.borderRadius = '4px';
+            bubble.appendChild(img);
+        } else {
+            var md = document.createElement('div');
+            md.className = 'md';
+            md.innerHTML = content.replace(/\n/g, '<br>');
+            bubble.appendChild(md);
+        }
+        wrap.appendChild(bubble);
+        chatBody.insertBefore(wrap, chatEnd);
+        chatEnd.scrollIntoView({block:'end'});
+    }
+
     document.getElementById('msgForm').onsubmit = async function(e){
         e.preventDefault();
         var txt = this.querySelector('textarea').value.trim();
@@ -155,10 +209,11 @@ if($with > 0) {
             var j;
             try { j = JSON.parse(text); } catch(e) { alert('服务器返回非JSON：\n' + text.substring(0,300)); sendBtn.disabled = false; return; }
             if(j.ok){
+                addBubble('me', txt, null);
                 this.querySelector('textarea').value = '';
                 this.querySelector('input[type=file]').value = '';
                 cancelQuote();
-                location.reload(); // 刷新页面以正确渲染引用和时间
+                if(j.mid) lastMid = j.mid;
             } else {
                 alert('发送失败：' + (j.msg || '未知'));
             }
@@ -168,13 +223,22 @@ if($with > 0) {
         sendBtn.disabled = false;
     };
 
-    // 轮询新消息
+    // 轮询新消息（仅追加，不刷新页面）
     setInterval(async function(){
         try {
             var r = await fetch('pull.php?with=' + WITH_ID + '&last=' + lastMid);
             var j = await r.json();
             if(j.messages && j.messages.length){
-                location.reload(); // 有新消息直接刷新，保证引用和时间的结构完整
+                j.messages.forEach(function(m){
+                    addBubble('other', m.content, m.file_path);
+                    if(m.mid > lastMid) lastMid = m.mid;
+                });
+                // 更新顶部红点
+                var navBadge = document.getElementById('navUnread');
+                if(navBadge){
+                    navBadge.innerText = parseInt(navBadge.innerText || 0) + j.messages.length;
+                    navBadge.style.display = 'inline-block';
+                }
             }
         } catch(e) {}
     }, 3000);
