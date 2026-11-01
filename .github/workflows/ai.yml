@@ -1,7 +1,5 @@
-name: AI 审查
+name: AI 逐文件审查
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -10,44 +8,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 三路并发通读
+      - name: 逐文件三路抢答
         shell: bash
         run: |
           set +e
-          FILES=$(find . -name '*.php' -not -path './vendor/*')
-          CONTENT=$(cat $FILES)
-          PROMPT="检查以下PHP文件是否存在结构性损坏（尾部重复粘贴、中文关键字、括号不配平）。正常输出OK，有问题输出BROKEN:描述。代码：$CONTENT"
+          FILES=$(find . -name '*.php' -not -path './vendor/*' | sort)
 
-          # 用 jq 安全构造 JSON，避免引号转义炸掉
-          PAYLOAD=$(jq -n --arg p "$PROMPT" '{
-            messages: [{role: "user", content: $p}],
-            max_tokens: 200,
-            temperature: 0
-          }')
+          for f in $FILES; do
+            content=$(cat "$f")
+            prompt=$(printf '只回答OK或BROKEN:原因。检查以下PHP文件是否有：1.第一个page_end()之后有重复粘贴的HTML/PHP碎片 2.中文关键字替换了PHP关键字 3.foreach/endforeach明显不配平。不要输出其他内容。文件内容：\n%s' "$content")
+            PAYLOAD=$(jq -n --arg p "$prompt" '{messages:[{role:"user",content:$p}],max_tokens:150,temperature:0}')
 
-          # 三路并发：每个 curl 后面跟 & 放后台
-          curl -s -X POST "https://apihub.agnes-ai.cn/v1/chat/completions" \
-            -H "Authorization: Bearer ${{ secrets.AGNES_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d "$(echo "$PAYLOAD" | jq '. + {model:"agnes-3.0-flash"}')" \
-            > /tmp/agnes.json 2>&1 &
+            curl -s --max-time 30 -X POST "https://apihub.agnes-ai.cn/v1/chat/completions" \
+              -H "Authorization: Bearer ${{ secrets.AGNES_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d "$(echo "$PAYLOAD" | jq '. + {model:"agnes-3.0-flash"}')" > /tmp/r1.json 2>&1 &
+            curl -s --max-time 30 -X POST "https://open.bigmodel.cn/api/paas/v4/chat/completions" \
+              -H "Authorization: Bearer ${{ secrets.GLM_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d "$(echo "$PAYLOAD" | jq '. + {model:"glm-4.7-flash"}')" > /tmp/r2.json 2>&1 &
+            curl -s --max-time 30 -X POST "https://integrate.api.nvidia.com/v1/chat/completions" \
+              -H "Authorization: Bearer ${{ secrets.NVIDIA_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d "$(echo "$PAYLOAD" | jq '. + {model:"z-ai/glm4.7"}')" > /tmp/r3.json 2>&1 &
+            wait
 
-          curl -s -X POST "https://open.bigmodel.cn/api/paas/v4/chat/completions" \
-            -H "Authorization: Bearer ${{ secrets.GLM_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d "$(echo "$PAYLOAD" | jq '. + {model:"glm-4.7-flash"}')" \
-            > /tmp/glm.json 2>&1 &
+            result=""
+            for r in /tmp/r1.json /tmp/r2.json /tmp/r3.json; do
+              v=$(jq -r '.choices[0].message.content // empty' "$r" 2>/dev/null | head -1 | cut -c1-200)
+              if [ -n "$v" ]; then result="$v"; break; fi
+            done
 
-          curl -s -X POST "https://integrate.api.nvidia.com/v1/chat/completions" \
-            -H "Authorization: Bearer ${{ secrets.NVIDIA_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d "$(echo "$PAYLOAD" | jq '. + {model:"z-ai/glm4.7"}')" \
-            > /tmp/nvidia.json 2>&1 &
-
-          # 等三个全部跑完
-          wait
-
-          echo "════════ 三路并发结果 ════════"
-          echo "🔴 Agnes:  $(jq -r '.choices[0].message.content // .error.message // "API_FAIL"' /tmp/agnes.json 2>/dev/null)"
-          echo "🟡 GLM:    $(jq -r '.choices[0].message.content // .error.message // "API_FAIL"' /tmp/glm.json 2>/dev/null)"
-          echo "🟢 NVIDIA: $(jq -r '.choices[0].message.content // .error.message // "API_FAIL"' /tmp/nvidia.json 2>/dev/null)"
+            if [ -z "$result" ]; then
+              echo "🔌 $f → 三路全挂"
+            elif echo "$result" | grep -qi "BROKEN"; then
+              echo "❌ $f → $result"
+            else
+              echo "✅ $f → OK"
+            fi
+          done
