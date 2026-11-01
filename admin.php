@@ -17,7 +17,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         $pdo->prepare('UPDATE announcements SET content = ? WHERE aid = 1')->execute([$content]);
         $msg = '公告已更新';
     }
-    
+
     if($mode === 'edit_user'){
         $tid = (int)$_POST['tid'];
         $new_points = (int)$_POST['points'];
@@ -27,9 +27,9 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         $gender = $_POST['gender'] ?? 'secret';
         $grade = mb_substr(trim($_POST['grade'] ?? ''), 0, 20);
         $class_name = mb_substr(trim($_POST['class_name'] ?? ''), 0, 20);
-        
+
         $stmt = $pdo->prepare('SELECT points FROM users WHERE uid = ?'); $stmt->execute([$tid]); $old_points = (int)$stmt->fetchColumn();
-        
+
         if($new_points !== $old_points){
             $delta = $new_points - $old_points;
             add_points($pdo, $tid, $delta, 'admin_adjust', $uid);
@@ -37,7 +37,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 $pdo->prepare('INSERT INTO user_actions (uid, admin_uid, action, detail) VALUES (?,?,?,?)')->execute([$tid, $uid, '积分变更', '管理员将你的积分调整了 '.($delta>0?'+':'').$delta]);
             }
         }
-        
+
         $pdo->prepare('UPDATE users SET nickname=?, bio=?, gender=?, grade=?, class_name=? WHERE uid=?')->execute([$nickname, $bio, $gender, $grade, $class_name, $tid]);
         if($new_pwd !== ''){ $pdo->prepare('UPDATE users SET password_hash = ? WHERE uid = ?')->execute([password_hash($new_pwd, PASSWORD_DEFAULT), $tid]); }
         $msg = '用户资料已更新';
@@ -170,9 +170,8 @@ th { background: #fafafa; }
                                 <a href="?action=remove_user&id=<?=$u['uid']?>" class="fl red btn-sm" onclick="return confirm('彻底删除？')">删除</a>
                             <?php endif; ?>
                         <?php endif; ?>
-                        <!-- 用 data-* 属性传数据，避免 JS 引号转义引发的崩溃 -->
-                        <button class="btn-sm" 
-                            data-uid="<?=$u['uid']?>" data-name="<?=h($u['username'])?>" data-points="<?=$u['points']?>" 
+                        <button class="btn-sm"
+                            data-uid="<?=$u['uid']?>" data-name="<?=h($u['username'])?>" data-points="<?=$u['points']?>"
                             data-nickname="<?=h($u['nickname'])?>" data-bio="<?=h($u['bio'])?>"
                             data-gender="<?=h($u['gender'] ?? 'secret')?>" data-grade="<?=h($u['grade'] ?? '')?>" data-class="<?=h($u['class_name'] ?? '')?>"
                             onclick="editUser(this)">修改</button>
@@ -255,295 +254,6 @@ th { background: #fafafa; }
             <tr><th>时间</th><th>UID</th><th>IP</th><th>路径</th></tr>
             <?php foreach($logs as $l): ?>
                 <tr><td><?=$l['created_at']?></td><td><?=$l['uid'] ?: '-'?></td><td><?=h($l['ip'])?></td><td><?=h($l['path'])?></td></tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php page_end(); ?>-sm" onclick='editUser(<?=json_encode($u, JSON_HEX_APOS|JSON_HEX_QUOT)?>)'>修改</button>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-    <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:999">
-        <div style="background:#fff;padding:20px;border-radius:8px;width:320px;max-height:90vh;overflow-y:auto;">
-            <h3 id="eu_title"></h3>
-            <form method="post">
-                <input type="hidden" name="mode" value="edit_user">
-                <input type="hidden" name="tid" id="eu_id">
-                <label>昵称</label>
-                <input type="text" name="nickname" id="eu_nickname" style="width:100%">
-                <label>积分</label>
-                <input type="number" name="points" id="eu_points" style="width:100%">
-                <label>简介</label>
-                <textarea name="bio" id="eu_bio" style="width:100%"></textarea>
-                <div style="display:flex;gap:10px;">
-                    <div style="flex:1">
-                        <label>性别</label>
-                        <select name="gender" id="eu_gender" style="width:100%">
-                            <option value="secret">保密</option>
-                            <option value="male">男生</option>
-                            <option value="female">女生</option>
-                        </select>
-                    </div>
-                    <div style="flex:1">
-                        <label>年级</label>
-                        <input type="text" name="grade" id="eu_grade" style="width:100%">
-                    </div>
-                    <div style="flex:1">
-                        <label>班级</label>
-                        <input type="text" name="class_name" id="eu_class" style="width:100%">
-                    </div>
-                </div>
-                <label>重置密码 (留空不改)</label>
-                <input type="text" name="newpwd" style="width:100%">
-                <div style="margin-top:10px;text-align:right">
-                    <button type="button" class="fl gray" onclick="document.getElementById('editModal').style.display='none'">取消</button>
-                    <button type="submit" class="fl">保存</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    <script>
-    function editUser(u){
-        document.getElementById('eu_id').value = u.uid;
-        document.getElementById('eu_title').innerText = '修改用户: ' + u.username;
-        document.getElementById('eu_points').value = u.points;
-        document.getElementById('eu_nickname').value = u.nickname || '';
-        document.getElementById('eu_bio').value = u.bio || '';
-        document.getElementById('eu_gender').value = u.gender || 'secret';
-        document.getElementById('eu_grade').value = u.grade || '';
-        document.getElementById('eu_class').value = u.class_name || '';
-        document.getElementById('editModal').style.display = 'flex';
-    }
-    </script>
-<?php endif; ?>
-
-<?php if($tab === 'posts'): ?>
-    <div class="card">
-        <h3>最新帖子</h3>
-        <table>
-            <tr><th>PID</th><th>作者</th><th>内容 (截取)</th><th>时间</th><th>操作</th></tr>
-            <?php foreach($posts as $p): ?>
-                <tr>
-                    <td><?=$p['pid']?></td>
-                    <td><?=h($p['username'])?></td>
-                    <td><?=h(mb_substr($p['content'], 0, 30))?>...</td>
-                    <td><?=$p['created_at']?></td>
-                    <td><a href="?action=remove_post&id=<?=$p['pid']?>" class="fl red btn-sm" onclick="return confirm('确定删除该帖子及评论？')">删除</a></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php if($tab === 'market'): ?>
-    <div class="card">
-        <h3>集市物品</h3>
-        <table>
-            <tr><th>ID</th><th>卖家</th><th>标题</th><th>价格</th><th>状态</th><th>操作</th></tr>
-            <?php foreach($markets as $m): ?>
-                <tr>
-                    <td><?=$m['id']?></td>
-                    <td><?=h($m['username'])?></td>
-                    <td><?=h($m['title'])?></td>
-                    <td><?=$m['price']?></td>
-                    <td><?=$m['status']?'在售':'已结束'?></td>
-                    <td><a href="?action=remove_market&id=<?=$m['id']?>" class="fl red btn-sm" onclick="return confirm('确定删除该物品？')">删除</a></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php if($tab === 'logs'): ?>
-    <div class="card">
-        <h3>IP 日志 (最近100条)</h3>
-        <table>
-            <tr><th>时间</th><th>UID</th><th>IP</th><th>路径</th></tr>
-            <?php foreach($logs as $l): ?>
-                <tr>
-                    <td><?=$l['created_at']?></td>
-                    <td><?=$l['uid'] ?: '-'?></td>
-                    <td><?=h($l['ip'])?></td>
-                    <td><?=h($l['path'])?></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php page_end(); ?>/td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-    <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:999">
-        <div style="background:#fff;padding:20px;border-radius:8px;width:320px;max-height:90vh;overflow-y:auto;">
-            <h3 id="eu_title"></h3>
-            <form method="post">
-                <input type="hidden" name="mode" value="edit_user">
-                <input type="hidden" name="tid" id="eu_id">
-                <label>昵称</label>
-                <input type="text" name="nickname" id="eu_nickname" style="width:100%">
-                <label>积分</label>
-                <input type="number" name="points" id="eu_points" style="width:100%">
-                <label>简介</label>
-                <textarea name="bio" id="eu_bio" style="width:100%"></textarea>
-                <div style="display:flex;gap:10px;">
-                    <div style="flex:1">
-                        <label>性别</label>
-                        <select name="gender" id="eu_gender" style="width:100%">
-                            <option value="secret">保密</option>
-                            <option value="male">男生</option>
-                            <option value="female">女生</option>
-                        </select>
-                    </div>
-                    <div style="flex:1">
-                        <label>年级</label>
-                        <input type="text" name="grade" id="eu_grade" style="width:100%">
-                    </div>
-                    <div style="flex:1">
-                        <label>班级</label>
-                        <input type="text" name="class_name" id="eu_class" style="width:100%">
-                    </div>
-                </div>
-                <label>重置密码 (留空不改)</label>
-                <input type="text" name="newpwd" style="width:100%">
-                <div style="margin-top:10px;text-align:right">
-                    <button type="button" class="fl gray" onclick="document.getElementById('editModal').style.display='none'">取消</button>
-                    <button type="submit" class="fl">保存</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    <script>
-    function editUser(u){
-        document.getElementById('eu_id').value = u.uid;
-        document.getElementById('eu_title').innerText = '修改用户: ' + u.username;
-        document.getElementById('eu_points').value = u.points;
-        document.getElementById('eu_nickname').value = u.nickname || '';
-        document.getElementById('eu_bio').value = u.bio || '';
-        document.getElementById('eu_gender').value = u.gender || 'secret';
-        document.getElementById('eu_grade').value = u.grade || '';
-        document.getElementById('eu_class').value = u.class_name || '';
-        document.getElementById('editModal').style.display = 'flex';
-    }
-    </script>
-<?php endif; ?>
-
-<?php if($tab === 'posts'): ?>
-    <div class="card">
-        <h3>最新帖子</h3>
-        <table>
-            <tr><th>PID</th><th>作者</th><th>内容 (截取)</th><th>时间</th><th>操作</th></tr>
-            <?php foreach($posts as $p): ?>
-                <tr>
-                    <td><?=$p['pid']?></td>
-                    <td><?=h($p['username'])?></td>
-                    <td><?=h(mb_substr($p['content'], 0, 30))?>...</td>
-                    <td><?=$p['created_at']?></td>
-                    <td><a href="?action=del_post&id=<?=$p['pid']?>" class="fl red btn-sm" onclick="return confirm('确定删除该帖子及评论？')">删除</a></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php if($tab === 'market'): ?>
-    <div class="card">
-        <h3>集市物品</h3>
-        <table>
-            <tr><th>ID</th><th>卖家</th><th>标题</th><th>价格</th><th>状态</th><th>操作</th></tr>
-            <?php foreach($markets as $m): ?>
-                <tr>
-                    <td><?=$m['id']?></td>
-                    <td><?=h($m['username'])?></td>
-                    <td><?=h($m['title'])?></td>
-                    <td><?=$m['price']?></td>
-                    <td><?=$m['status']?'在售':'已结束'?></td>
-                    <td><a href="?action=del_market&id=<?=$m['id']?>" class="fl red btn-sm" onclick="return confirm('确定删除该物品？')">删除</a></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php if($tab === 'logs'): ?>
-    <div class="card">
-        <h3>IP 日志 (最近100条)</h3>
-        <table>
-            <tr><th>时间</th><th>UID</th><th>IP</th><th>路径</th></tr>
-            <?php foreach($logs as $l): ?>
-                <tr>
-                    <td><?=$l['created_at']?></td>
-                    <td><?=$l['uid'] ?: '-'?></td>
-                    <td><?=h($l['ip'])?></td>
-                    <td><?=h($l['path'])?></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php page_end(); ?>.getElementById('eu_id').value = id;
-        document.getElementById('eu_title').innerText = '修改用户: ' + name;
-        document.getElementById('eu_points').value = pts;
-        document.getElementById('editModal').style.display = 'flex';
-    }
-    </script>
-<?php endif; ?>
-
-<?php if($tab === 'posts'): ?>
-    <div class="card">
-        <h3>最新帖子</h3>
-        <table>
-            <tr><th>PID</th><th>作者</th><th>内容 (截取)</th><th>时间</th><th>操作</th></tr>
-            <?php foreach($posts as $p): ?>
-                <tr>
-                    <td><?=$p['pid']?></td>
-                    <td><?=h($p['username'])?></td>
-                    <td><?=h(mb_substr($p['content'], 0, 30))?>...</td>
-                    <td><?=$p['created_at']?></td>
-                    <td><a href="?action=del_post&id=<?=$p['pid']?>" class="fl red btn-sm" onclick="return confirm('确定删除该帖子及评论？')">删除</a></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php if($tab === 'market'): ?>
-    <div class="card">
-        <h3>集市物品</h3>
-        <table>
-            <tr><th>ID</th><th>卖家</th><th>标题</th><th>价格</th><th>状态</th><th>操作</th></tr>
-            <?php foreach($markets as $m): ?>
-                <tr>
-                    <td><?=$m['id']?></td>
-                    <td><?=h($m['username'])?></td>
-                    <td><?=h($m['title'])?></td>
-                    <td><?=$m['price']?></td>
-                    <td><?=$m['status']?'在售':'已结束'?></td>
-                    <td><a href="?action=del_market&id=<?=$m['id']?>" class="fl red btn-sm" onclick="return confirm('确定删除该物品？')">删除</a></td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-<?php endif; ?>
-
-<?php if($tab === 'logs'): ?>
-    <div class="card">
-        <h3>IP 日志 (最近100条)</h3>
-        <table>
-            <tr><th>时间</th><th>UID</th><th>IP</th><th>路径</th></tr>
-            <?php foreach($logs as $l): ?>
-                <tr>
-                    <td><?=$l['created_at']?></td>
-                    <td><?=$l['uid'] ?: '-'?></td>
-                    <td><?=h($l['ip'])?></td>
-                    <td><?=h($l['path'])?></td>
-                </tr>
             <?php endforeach; ?>
         </table>
     </div>
