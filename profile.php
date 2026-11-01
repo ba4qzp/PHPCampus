@@ -19,7 +19,7 @@ if($is_self && $_SERVER['REQUEST_METHOD'] === 'POST'){
         $grade = mb_substr(trim($_POST['grade'] ?? ''), 0, 20);
         $class_name = mb_substr(trim($_POST['class_name'] ?? ''), 0, 20);
         $show_info = !empty($_POST['show_info']) ? 1 : 0;
-        
+
         $pdo->prepare('UPDATE users SET nickname=?, bio=?, gender=?, grade=?, class_name=?, show_info=? WHERE uid=?')->execute([$nickname, $bio, $gender, $grade, $class_name, $show_info, $uid]);
         $msg = '资料已更新';
         $stmt = $pdo->prepare('SELECT * FROM users WHERE uid = ?'); $stmt->execute([$uid]); $urow = $stmt->fetch();
@@ -83,7 +83,7 @@ page_head('个人主页'); ?>
         <h2 style="margin:0 0 4px"><?=h(show_name($target))?> <?php if($target['uid'] == SUPER_UID) echo '<span class="badge-super">超管</span>'; elseif($target['is_admin']) echo '<span class="badge-admin">管理员</span>'; ?></h2>
         <p style="margin:0;color:#888;font-size:13px">
             @<?=h($target['username'])?> · UID: <?=$target['uid']?> · 注册于 <?=date('Y-m-d', strtotime($target['created_at']))?>
-            <?php if($target['show_info']): 
+            <?php if($target['show_info']):
                 $info = [];
                 if($target['gender'] == 'male') $info[] = '♂'; if($target['gender'] == 'female') $info[] = '♀';
                 if($target['grade']) $info[] = h($target['grade']); if($target['class_name']) $info[] = h($target['class_name']);
@@ -115,8 +115,7 @@ page_head('个人主页'); ?>
             <label style="display:flex;align-items:center;gap:8px;margin-top:10px;"><input type="checkbox" name="show_info" value="1" <?=($target['show_info']??0)?'checked':''?>> 在发帖和评论中展示我的年级/班级</label>
             <button type="submit" style="margin-top:10px">保存资料</button>
         </form>
-        
-        <!-- ★ 加上了 enctype，头像终于能传了 -->
+
         <form method="post" enctype="multipart/form-data" style="flex:1;min-width:250px">
             <input type="hidden" name="mode" value="avatar">
             <label>更换头像 (最大 2MB)</label>
@@ -179,38 +178,4 @@ function switchTab(name){
     if(window.mdRenderAll) window.mdRenderAll();
 }
 </script>
-<?php page_end(); ?>      </div>
-        <?php endforeach; ?>
-    </div>
-
-    <?php if($is_self): ?>
-    <div id="tab-points" class="tab-content">
-        <?php if(!$point_logs): ?><p style="color:#888">暂无流水</p><?php endif; ?>
-        <?php foreach($point_logs as $l): $d = (int)$l['delta']; ?>
-            <div class="log-item">
-                <span style="float:right;font-weight:bold;color:<?=$d>=0?'green':'red'?>"><?=$d>=0?'+':''?><?=$d?></span>
-                <b><?=h($l['reason'])?></b> <span style="color:#888;margin-left:10px"><?=h($l['created_at'])?></span>
-                <?php if($l['ref_id']): ?><span style="color:#aaa;font-size:11px;margin-left:10px">(关联 ID: <?=$l['ref_id']?>)</span><?php endif; ?>
-            </div>
-        <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
-</div>
-
-<script>
-function switchTab(name){
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    if(name === 'posts') document.querySelectorAll('.tab-btn')[0].classList.add('active');
-    if(name === 'comments') document.querySelectorAll('.tab-btn')[1].classList.add('active');
-    if(name === 'points') document.querySelectorAll('.tab-btn')[2].classList.add('active');
-    document.getElementById('tab-' + name).classList.add('active');
-    if(window.mdRenderAll) window.mdRenderAll();
-}
-</script>
-
-<?php page_end(); ?>ow.mdRenderAll) window.mdRenderAll();
-}
-</script>
-
 <?php page_end(); ?>
