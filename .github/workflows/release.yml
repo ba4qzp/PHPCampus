@@ -128,7 +128,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: "${{ github.event.inputs.severity == '严重漏洞' && '[CRITICAL] ' || (github.event.inputs.severity == '高危漏洞' && '[HIGH_BUG] ' || (github.event.inputs.severity == '一般漏洞' && '[LOW_BUG] ' || '[UPDATE] ')) }}Release ${{ env.TAG }} (${{ github.event.inputs.release_type }})"
+          name: "${{ github.event.inputs.severity == '严重漏洞' && '[CRITICAL] ' || (github.event.inputs.severity == '高危漏洞' && '[HIGH_BUG] ' || (github.event.inputs.severity == '一般漏洞' && '[LOW_BUG] ' || '[UPDATE] ')) }}Release ${{ env.TAG }}"
           files: |
             PCW-${{ env.VERSION }}.zip
             PCW-${{ env.VERSION }}.zip.sha256
@@ -252,12 +252,6 @@ jobs:
         if [ "$NG" != "1" ]; then echo "❌ 后台操作失败"; exit 1; fi
         
         curl -s "http://127.0.0.1:8000/install.php" > upgrade_res.html
-        if ! grep -q "升级成功\|已是最新" upgrade_res.html; then 
-            echo "❌ 平滑升级验证失败"
-            cat upgrade_res.html
-            exit 1; 
-        fi
-        echo "✅ 后台与升级模块通过"0.0.1:8000/install.php" > upgrade_res.html
         if ! grep -q "升级成功\|已是最新" upgrade_res.html; then 
             echo "❌ 平滑升级验证失败"
             cat upgrade_res.html
