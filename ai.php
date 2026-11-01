@@ -20,7 +20,7 @@ if(!$conv_id){
 $stmt = $pdo->prepare('SELECT * FROM ai_msgs WHERE conv_id = ? ORDER BY id ASC LIMIT 200'); $stmt->execute([$conv_id]); $msgs = $stmt->fetchAll();
 page_head('AI 助手'); ?>
 <div class="nav">
-    <a href="ai.php?action=new" onclick="event.preventDefault();fetch('ai_api.php?action=new').then(r=>r.json()).then(j=>location.href='ai.php?c='+j.id)">＋ 新对话</a>
+    <a href="ai.php?action=new" onclick="event.preventDefault();newConv()">＋ 新对话</a>
 </div>
 <div class="card" id="chatBody" style="min-height:300px;max-height:60vh;overflow-y:auto">
     <?php foreach($msgs as $m): ?>
@@ -40,26 +40,72 @@ page_head('AI 助手'); ?>
 </div>
 <script>
 var CONV_ID = <?=$conv_id?>;
-document.getElementById('aiForm').onsubmit = async function(e) {
+var chatBody = document.getElementById('chatBody');
+var sendBtn  = document.getElementById('sendBtn');
+var txtEl    = document.getElementById('txt');
+
+function makeBubble(role, content, imagePath){
+    var wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    if(role === 'user'){ wrap.style.justifyContent = 'flex-end'; }
+
+    var bubble = document.createElement('div');
+    bubble.className = 'msg-bubble ' + (role === 'user' ? 'msg-me' : 'msg-other');
+
+    if(imagePath){
+        var img = document.createElement('img');
+        img.src = imagePath;
+        img.style.maxWidth = (role === 'user' ? '150px' : '200px');
+        img.style.borderRadius = '4px';
+        bubble.appendChild(img);
+    } else {
+        var md = document.createElement('div');
+        md.className = 'md';
+        md.textContent = content;
+        bubble.appendChild(md);
+    }
+
+    wrap.appendChild(bubble);
+    return wrap;
+}
+
+function scrollBottom(){ chatBody.scrollTop = chatBody.scrollHeight; }
+
+function newConv(){
+    fetch('ai_api.php?action=new')
+        .then(function(r){ return r.json(); })
+        .then(function(j){ location.href = 'ai.php?c=' + j.id; });
+}
+
+document.getElementById('aiForm').onsubmit = async function(e){
     e.preventDefault();
-    var txt = document.getElementById('txt').value.trim();
+    var txt = txtEl.value.trim();
     if(!txt) return;
-    var body = document.getElementById('chatBody');
-    body.innerHTML += '<div style="display:flex;justify-content:flex-end"><div class="msg-bubble msg-me"><div class="md">'+escHtml(txt)+'</div></div></div>';
-    document.getElementById('txt').value = '';
-    var r = await fetch('ai_api.php?action=chat', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({conv_id: CONV_ID, text: txt})
-    });
-    var j = await r.json();
-    if(j.ok){
-        var html = '<div class="msg-bubble msg-other"><div class="md">'+escHtml(j.msg.content)+'</div></div>';
-        if(j.msg.image_path) html = '<div class="msg-bubble msg-other"><img src="'+j.msg.image_path+'" style="max-width:200px"></div>';
-        body.innerHTML += '<div style="display:flex">'+html+'</div>';
-        if(window.mdRenderAll) window.mdRenderAll();
-        body.scrollTop = body.scrollHeight;
-    } else alert(j.msg);
-    document.getElementById('sendBtn').disabled = false;
+
+    chatBody.appendChild(makeBubble('user', txt, null));
+    scrollBottom();
+    txtEl.value = '';
+    sendBtn.disabled = true;
+
+    try {
+        var r = await fetch('ai_api.php?action=chat', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({conv_id: CONV_ID, text: txt})
+        });
+        var j = await r.json();
+        if(j.ok){
+            chatBody.appendChild(makeBubble('assistant', j.msg.content, j.msg.image_path));
+            if(window.mdRenderAll) window.mdRenderAll();
+            scrollBottom();
+        } else {
+            alert(j.msg || '发送失败');
+        }
+    } catch(err) {
+        alert('网络错误：' + err.message);
+    } finally {
+        sendBtn.disabled = false;
+    }
 };
 </script>
 <?php page_end(); ?>
