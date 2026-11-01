@@ -9,8 +9,16 @@ function ensure_dirs(){
 
     $htaccess = $upload_dir . '/.htaccess';
     if(!file_exists($htaccess)){
-        // ★ 移除了 InfinityFree 不支持的 Options -ExecCGI
-        $rules = "AddHandler cgi-script .php .php3 .phtml .pht .phar .pl .py .jsp .asp .htm .shtml .sh .cgi\nSetHandler none\n";
+        // ★ 完美兼容 InfinityFree 的防跨站执行规则（不使用 Options 指令）
+        $rules = "<FilesMatch \"\.(php|php3|php4|php5|phtml|phar|pl|py|jsp|asp|htm|shtml|sh|cgi)$\">\n";
+        $rules .= "    <IfModule mod_authz_core.c>\n";
+        $rules .= "        Require all denied\n";
+        $rules .= "    </IfModule>\n";
+        $rules .= "    <IfModule !mod_authz_core.c>\n";
+        $rules .= "        Order Allow,Deny\n";
+        $rules .= "        Deny from all\n";
+        $rules .= "    </IfModule>\n";
+        $rules .= "</FilesMatch>\n";
         @file_put_contents($htaccess, $rules);
     }
 }
@@ -75,6 +83,7 @@ function check_for_updates($pdo) {
 
     if (!$data || ($now - ($data['time'] ?? 0)) > $cache_time) {
         $url = 'https://api.github.com/repos/BA4QZP/PHPCampus/releases';
+        
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
