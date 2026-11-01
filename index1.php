@@ -26,18 +26,11 @@ page_head('私聊'); ?>
         <div id="chatBody" style="max-height:60vh;overflow-y:auto;padding-right:4px">
             <?php foreach($conv as $m): $mine = ((int)$m['from_uid'] === $uid); ?>
                 <div style="display:flex;<?=$mine?'justify-content:flex-end':''?>;margin-bottom:10px;" data-mid="<?=$m['mid']?>">
-                    <div class="msg-bubble <?=$mine?'msg-me':'msg-other'?>" style="max-width:80%;">
+                    <div class="msg-bubble <?=$mine?'msg-me':'msg-other'" style="max-width:80%;">
                         <div style="font-size:10px;color:#888;margin-bottom:2px;"><?=date('m-d H:i', strtotime($m['created_at']))?></div>
                         <?php if($m['deleted']): ?>
                             <div style="color:#999;font-style:italic">[该消息已撤回]</div>
                         <?php else: ?>
-                            <?php if($m['reply_to']): 
-                                $rstmt = $pdo->prepare('SELECT content FROM messages WHERE mid = ?'); $rstmt->execute([$m['reply_to']]); $rcontent = $rstmt->fetchColumn();
-                            ?>
-                                <div style="background:rgba(0,0,0,0.05);border-left:2px solid #ccc;padding:4px;font-size:12px;margin-bottom:4px;color:#666;">
-                                    引用：<?=h(mb_substr($rcontent?:'[已撤回]', 0, 20))?>...
-                                </div>
-                            <?php endif; ?>
                             <div class="md"><?=h($m['content'])?></div>
                             <?php if($m['file_path']): ?>
                                 <?php if(is_image($m['file_path'])): ?>
@@ -46,28 +39,15 @@ page_head('私聊'); ?>
                                     <a href="<?=h($m['file_path'])?>" target="_blank">📎 附件: <?=h($m['file_name'])?></a>
                                 <?php endif; ?>
                             <?php endif; ?>
-                            
-                            <!-- 操作按钮 -->
-                            <div style="font-size:11px;margin-top:4px;text-align:right;">
-                                <a href="javascript:void(0)" onclick="quoteMsg(<?=$m['mid']?>, '<?=h(addslashes($m['content']))?>')" style="color:#2563eb;">引用</a>
-                                <?php if($mine && time() - strtotime($m['created_at']) < 120): ?>
-                                    | <a href="javascript:void(0)" onclick="recallMsg(<?=$m['mid']?>)" style="color:#dc2626;">撤回</a>
-                                <?php endif; ?>
-                                | <a href="javascript:void(0)" onclick="forwardMsg(<?=$m['mid']?>)" style="color:#2563eb;">转发</a>
-                            </div>
                         <?php endif; ?>
                     </div>
                 </div>
             <?php endforeach; ?>
             <div id="chatEnd"></div>
         </div>
-        
+
         <form id="msgForm" enctype="multipart/form-data" style="margin-top:10px">
             <input type="hidden" name="to" value="<?=$with?>">
-            <input type="hidden" name="reply_to" id="replyToInput" value="">
-            <div id="quotePreview" style="display:none;background:#f3f4f6;padding:5px;font-size:12px;margin-bottom:5px;border-radius:4px;">
-                正在引用: <span id="quoteText"></span> <a href="javascript:void(0)" onclick="cancelQuote()">取消</a>
-            </div>
             <textarea name="content" placeholder="说点什么..." style="width:100%;min-height:60px;"></textarea>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">
                 <input type="file" name="file" style="font-size:12px;">
@@ -75,59 +55,74 @@ page_head('私聊'); ?>
             </div>
         </form>
     </div>
-    
+
     <script>
-    var chatBody = document.getElementById('chatBody'), chatEnd = document.getElementById('chatEnd'), lastMid = <?=end($conv)['mid']?:0?>;
-    function scrollBottom(){ chatEnd.scrollIntoView(); } window.addEventListener('load', scrollBottom);
-    
-    function quoteMsg(mid, content) {
-        document.getElementById('replyToInput').value = mid;
-        document.getElementById('quoteText').innerText = content.substring(0, 20) + '...';
-        document.getElementById('quotePreview').style.display = 'block';
-    }
-    function cancelQuote() {
-        document.getElementById('replyToInput').value = '';
-        document.getElementById('quotePreview').style.display = 'none';
-    }
-    function recallMsg(mid) {
-        if(!confirm('确定撤回该消息？')) return;
-        fetch('send_msg.php?action=recall', {method:'POST', body: new URLSearchParams({mid: mid})})
-            .then(r => r.json()).then(j => {
-                if(j.ok) location.reload(); else alert('撤回失败');
-            });
-    }
-    function forwardMsg(mid) {
-        var to = prompt("输入要转发给对方的 UID:");
-        if(!to) return;
-        fetch('send_msg.php?action=forward', {method:'POST', body: new URLSearchParams({mid: mid, to: to})})
-            .then(r => r.json()).then(j => {
-                if(j.ok) alert('转发成功'); else alert('转发失败');
-            });
+    var WITH_ID = <?=$with?>;
+    var chatBody = document.getElementById('chatBody');
+    var chatEnd  = document.getElementById('chatEnd');
+    var lastMid  = <?=count($conv) ? (int)end($conv)['mid'] : 0?>;
+    var sendBtn  = document.getElementById('sendBtn');
+
+    function addBubble(role, content, imagePath){
+        var wrap = document.createElement('div');
+        wrap.style.display = 'flex';
+        wrap.style.marginBottom = '10px';
+        if(role === 'me'){ wrap.style.justifyContent = 'flex-end'; }
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble ' + (role === 'me' ? 'msg-me' : 'msg-other');
+        bubble.style.maxWidth = '80%';
+        if(imagePath){
+            var img = document.createElement('img');
+            img.src = imagePath; img.style.maxWidth = '100%'; img.style.borderRadius = '4px';
+            bubble.appendChild(img);
+        } else {
+            var md = document.createElement('div');
+            md.className = 'md';
+            md.textContent = content;
+            bubble.appendChild(md);
+        }
+        wrap.appendChild(bubble);
+        chatBody.insertBefore(wrap, chatEnd);
+        chatEnd.scrollIntoView({block:'end'});
     }
 
     document.getElementById('msgForm').onsubmit = async function(e){
         e.preventDefault();
-        var btn = document.getElementById('sendBtn'); btn.disabled = true;
+        var txt = this.querySelector('textarea').value.trim();
+        if(!txt) return;
+        sendBtn.disabled = true;
         var fd = new FormData(this);
-        var r = await fetch('send_msg.php', {method:'POST', body:fd});
-        var j = await r.json();
-        if(j.ok){ 
-            this.querySelector('textarea').value = ''; 
-            this.querySelector('input[type=file]').value = '';
-            cancelQuote();
-            location.reload(); // 简单粗暴，发完就刷新
-        } else {
-            alert('发送失败: ' + (j.msg || '未知错误'));
+        try {
+            var r = await fetch('send_msg.php', {method:'POST', body:fd});
+            var text = await r.text();
+            var j;
+            try { j = JSON.parse(text); } catch(e) { alert('服务器返回非JSON：\n' + text.substring(0,300)); sendBtn.disabled = false; return; }
+            if(j.ok){
+                addBubble('me', txt, null);
+                this.querySelector('textarea').value = '';
+                this.querySelector('input[type=file]').value = '';
+                if(j.mid) lastMid = j.mid;
+            } else {
+                alert('发送失败：' + (j.msg || '未知'));
+            }
+        } catch(err) {
+            alert('网络错误：' + err.message);
         }
-        btn.disabled = false;
+        sendBtn.disabled = false;
     };
-    
+
     setInterval(async function(){
-        var r = await fetch('pull.php?with=<?=$with?>&last=' + lastMid);
-        var j = await r.json();
-        if(j.messages && j.messages.length){
-            location.reload(); // 收到新消息直接刷新
-        }
+        try {
+            var r = await fetch('pull.php?with=' + WITH_ID + '&last=' + lastMid);
+            var j = await r.json();
+            if(j.messages && j.messages.length){
+                j.messages.forEach(function(m){
+                    addBubble('other', m.content, m.file_path);
+                    if(m.mid > lastMid) lastMid = m.mid;
+                });
+                if(window.mdRenderAll) window.mdRenderAll();
+            }
+        } catch(e) {}
     }, 3000);
     </script>
 <?php endif; endif; ?>
