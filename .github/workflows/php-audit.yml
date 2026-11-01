@@ -1,0 +1,81 @@
+name: PHPCampus 全量体检
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: 八道关卡全量扫描
+        shell: bash
+        run: |
+          set +e
+          RED='\033[0;31m'; YEL='\033[1;33m'; GRN='\033[0;32m'; NC='\033[0m'
+          TOTAL=0; BAD=0
+          echo "════════════════════════════════════════════"
+          echo " PHPCampus 全量 PHP 体检"
+          echo "════════════════════════════════════════════"
+
+          while IFS= read -r -d '' f; do
+            TOTAL=$((TOTAL+1))
+            issues=()
+
+            if ! php -l "$f" >/tmp/l.out 2>&1; then
+              issues+=("语法错误: $(grep -oP 'on line \K[0-9]+' /tmp/l.out | head -1)")
+            fi
+
+            pe=$(grep -c 'page_end()' "$f" 2>/dev/null || echo 0)
+            [ "$pe" -gt 1 ] && issues+=("page_end()×$pe")
+
+            if grep -q 'page_end()' "$f"; then
+              tail=$(awk '/page_end\(\)/{f=1;next} f' "$f" | grep -v '^\s*$')
+              [ -n "$tail" ] && issues+=("page_end 后有 $(echo "$tail"|wc -l) 行残留")
+            fi
+
+            fw=$(grep -o 'foreach\s*(' "$f" | wc -l)
+            fe=$(grep -o 'endforeach' "$f" | wc -l)
+            [ "$fw" -ne "$fe" ] && issues+=("foreach:$fw≠endforeach:$fe")
+
+            iw=$(grep -oE '\bif\s*\(' "$f" | wc -l)
+            ie=$(grep -oE '\bendif' "$f" | wc -l)
+            [ "$ie" -gt "$iw" ] && issues+=("endif:$ie 多于 if:$iw")
+
+            if grep -qE '(如果|否则|结束如果|结束循环|结束遍历)' "$f"; then
+              issues+=("疑似中文关键字污染")
+            fi
+
+            dup=$(awk 'NF && !/^[}{]$/ && $0==prev{c++} {prev=$0} END{print c+0}' "$f")
+            [ "$dup" -gt 10 ] && issues+=("重复行×$dup")
+
+            sz=$(wc -c < "$f")
+            [ "$sz" -lt 50 ] && issues+=("文件过小 ${sz}B")
+
+            if [ ${#issues[@]} -gt 0 ]; then
+              BAD=$((BAD+1))
+              echo -e "${RED}✗ $f${NC}"
+              for i in "${issues[@]}"; do echo -e "    ${YEL}→ $i${NC}"; done
+            fi
+          done < <(find . -name '*.php' -not -path './vendor/*' -print0 | sort -z)
+
+          echo ""
+          echo "════════════════════════════════════════════"
+          if [ "$BAD" -eq 0 ]; then
+            echo -e "${GRN}✅ 全部 $TOTAL 个 PHP 文件通过${NC}"
+          else
+            echo -e "${RED}❌ $BAD / $TOTAL 个文件有问题${NC}"
+          fi
+          echo "════════════════════════════════════════════"
+
+          [ "$BAD" -eq 0 ]
