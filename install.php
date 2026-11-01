@@ -17,11 +17,12 @@ if(file_exists(__DIR__ . '/.env') && file_exists(__DIR__ . '/install.lock')){
             }
         }
     }
-    
+
     if(isset($env['DB_HOST'], $env['DB_NAME'], $env['DB_USER'])){
         try {
             $pdo = new PDO("mysql:host={$env['DB_HOST']};dbname={$env['DB_NAME']};charset=utf8mb4", $env['DB_USER'], $env['DB_PASS'] ?? '', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
-            
+            $pdo->exec("SET NAMES utf8mb4");
+
             $tables = $pdo->query("SHOW TABLES LIKE 'users'")->fetchAll();
             if (!$tables) {
                 die('<!DOCTYPE html><html><head><meta charset="utf-8"><title>错误</title></head><body style="text-align:center;margin-top:50px;font-family:sans-serif;"><h3 style="color:red">❌ 数据库表不存在，但系统已安装</h3><p>请删除服务器上的 .env 和 install.lock 文件，然后刷新此页进行全新安装。</p></body></html>');
@@ -30,23 +31,29 @@ if(file_exists(__DIR__ . '/.env') && file_exists(__DIR__ . '/install.lock')){
             $cols = [];
             $stmt = $pdo->query("SHOW COLUMNS FROM users");
             while($row = $stmt->fetch(PDO::FETCH_ASSOC)) $cols[] = $row['Field'];
-            
+
             $upgraded = false;
-            // ★ 去掉了 AFTER 语法，防止因为旧表缺少某个字段而报错
             if(!in_array('gender', $cols)) { $pdo->exec("ALTER TABLE users ADD COLUMN gender VARCHAR(10) DEFAULT 'secret'"); $upgraded = true; }
             if(!in_array('grade', $cols)) { $pdo->exec("ALTER TABLE users ADD COLUMN grade VARCHAR(20) DEFAULT ''"); $upgraded = true; }
             if(!in_array('class_name', $cols)) { $pdo->exec("ALTER TABLE users ADD COLUMN class_name VARCHAR(20) DEFAULT ''"); $upgraded = true; }
             if(!in_array('show_info', $cols)) { $pdo->exec("ALTER TABLE users ADD COLUMN show_info TINYINT(1) DEFAULT 0"); $upgraded = true; }
-            
+
+            // ★ 自动把所有表的字符集统一转成 utf8mb4，零基础用户不用碰 phpMyAdmin
+            $all_tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($all_tables as $t) {
+                try { $pdo->exec("ALTER TABLE `$t` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); }
+                catch (Exception $e) { /* 单表失败不中断 */ }
+            }
+
             if($upgraded) $upgrade_msg = '<h3 style="color:green">✅ 数据库结构已自动平滑升级成功！</h3>';
             else $upgrade_msg = '<h3 style="color:blue">💡 系统已安装，且数据库结构已是最新，无需重复升级。</h3>';
-        } catch(Exception $e) { 
-            $upgrade_msg = '<h3 style="color:red">❌ 自动升级失败：' . htmlspecialchars($e->getMessage()) . '</h3>'; 
+        } catch(Exception $e) {
+            $upgrade_msg = '<h3 style="color:red">❌ 自动升级失败：' . htmlspecialchars($e->getMessage()) . '</h3>';
         }
     } else {
         $upgrade_msg = '<h3 style="color:red">❌ 无法读取 .env 配置文件。</h3>';
     }
-    
+
     die('<!DOCTYPE html><html><head><meta charset="utf-8"><title>系统升级</title><style>body{font-family:sans-serif;text-align:center;margin-top:50px;}</style></head><body>' . $upgrade_msg . '<p><a href="index.php">← 返回首页</a></p></body></html>');
 }
 
@@ -71,6 +78,7 @@ if($step === '2'){
         try {
             // 防呆检查：数据库是否已有用户
             $check_pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+            $check_pdo->exec("SET NAMES utf8mb4");
             $table_exists = $check_pdo->query("SHOW TABLES LIKE 'users'")->fetch();
             if($table_exists){
                 $count = $check_pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
@@ -80,6 +88,8 @@ if($step === '2'){
             }
 
             $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass, [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+            $pdo->exec("SET NAMES utf8mb4");
+
             $sql = "
             CREATE TABLE IF NOT EXISTS users (
                 uid INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(20) UNIQUE NOT NULL, nickname VARCHAR(50) DEFAULT '', password_hash VARCHAR(255) NOT NULL,
@@ -106,25 +116,30 @@ if($step === '2'){
                 id INT AUTO_INCREMENT PRIMARY KEY, uid1 INT NOT NULL, uid2 INT NOT NULL, status TINYINT(1) DEFAULT 0,
                 pinned TINYINT(1) DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY pair (uid1, uid2)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-            CREATE TABLE IF NOT EXISTS likes (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, pid INT, UNIQUE KEY u_p (uid, pid));
-            CREATE TABLE IF NOT EXISTS point_logs (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, delta INT, reason VARCHAR(32), ref_id INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS likes (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, pid INT, UNIQUE KEY u_p (uid, pid)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS point_logs (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, delta INT, reason VARCHAR(32), ref_id INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             CREATE TABLE IF NOT EXISTS market_items (
                 id INT AUTO_INCREMENT PRIMARY KEY, uid INT NOT NULL, title VARCHAR(100) NOT NULL, desc_text TEXT,
                 price INT NOT NULL, image_path VARCHAR(255) DEFAULT '', status TINYINT(1) DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-            CREATE TABLE IF NOT EXISTS market_logs (id INT AUTO_INCREMENT PRIMARY KEY, item_id INT, buyer_uid INT, seller_uid INT, price INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
-            CREATE TABLE IF NOT EXISTS user_actions (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, admin_uid INT, action VARCHAR(50), detail TEXT, is_read TINYINT(1) DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
-            CREATE TABLE IF NOT EXISTS announcements (aid INT PRIMARY KEY DEFAULT 1, content TEXT);
-            INSERT IGNORE INTO announcements (aid, content) VALUES (1, '欢迎来到 ".addslashes($site_name)."！');
-            CREATE TABLE IF NOT EXISTS ip_logs (lid INT AUTO_INCREMENT PRIMARY KEY, uid INT, ip VARCHAR(45), path VARCHAR(255), ua VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
-            CREATE TABLE IF NOT EXISTS ai_convs (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, title VARCHAR(80), summary MEDIUMTEXT NULL, summary_upto_mid INT DEFAULT 0, summary_ctx INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
-            CREATE TABLE IF NOT EXISTS ai_msgs (id INT AUTO_INCREMENT PRIMARY KEY, conv_id INT, role VARCHAR(16), content MEDIUMTEXT, image_path VARCHAR(255), tokens INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS market_logs (id INT AUTO_INCREMENT PRIMARY KEY, item_id INT, buyer_uid INT, seller_uid INT, price INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS user_actions (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, admin_uid INT, action VARCHAR(50), detail TEXT, is_read TINYINT(1) DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS announcements (aid INT PRIMARY KEY DEFAULT 1, content TEXT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS ip_logs (lid INT AUTO_INCREMENT PRIMARY KEY, uid INT, ip VARCHAR(45), path VARCHAR(255), ua VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS ai_convs (id INT AUTO_INCREMENT PRIMARY KEY, uid INT, title VARCHAR(80), summary MEDIUMTEXT NULL, summary_upto_mid INT DEFAULT 0, summary_ctx INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS ai_msgs (id INT AUTO_INCREMENT PRIMARY KEY, conv_id INT, role VARCHAR(16), content MEDIUMTEXT, image_path VARCHAR(255), tokens INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             ";
             $pdo->exec($sql);
+
+            // ★ 公告单独插入，确保字符集生效
+            $pdo->exec("SET NAMES utf8mb4");
+            $stmt = $pdo->prepare('INSERT IGNORE INTO announcements (aid, content) VALUES (1, ?)');
+            $stmt->execute(['欢迎来到 ' . $site_name . '！']);
+
             $hash = password_hash($admin_pass, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare('INSERT INTO users (username, password_hash, email, is_admin, status, reg_ip) VALUES (?, ?, ?, 1, "active", ?)');
             $stmt->execute([$admin_user, $hash, $admin_email, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1']);
-            
+
             $envContent = "SITE_NAME=\"{$site_name}\"\nSITE_URL=\"http://".$_SERVER['HTTP_HOST']."\"\nADMIN_EMAIL=\"{$admin_email}\"\nALLOW_REGISTER={$allow_register}\nREQUIRE_APPROVAL={$require_approval}\nREQUIRE_EMAIL={$require_email}\nLIMIT_PRIVATE_MSG={$limit_private_msg}\nDB_HOST=\"{$db_host}\"\nDB_NAME=\"{$db_name}\"\nDB_USER=\"{$db_user}\"\nDB_PASS=\"{$db_pass}\"\nAI_BASE_URL=\"\"\nAI_API_KEY=\"\"\nAI_MODEL=\"\"\n";
             if(file_put_contents(__DIR__ . '/.env', $envContent) === false) throw new Exception("无法写入 .env 文件");
             file_put_contents(__DIR__ . '/install.lock', 'locked');
