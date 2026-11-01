@@ -26,7 +26,7 @@ page_head('私聊'); ?>
         <div id="chatBody" style="max-height:60vh;overflow-y:auto;padding-right:4px">
             <?php foreach($conv as $m): $mine = ((int)$m['from_uid'] === $uid); ?>
                 <div style="display:flex;<?=$mine?'justify-content:flex-end':''?>;margin-bottom:10px;" data-mid="<?=$m['mid']?>">
-                    <div class="msg-bubble <?=$mine?'msg-me':'msg-other'" style="max-width:80%;">
+                    <div class="msg-bubble <?=$mine?'msg-me':'msg-other'?>" style="max-width:80%;">
                         <div style="font-size:10px;color:#888;margin-bottom:2px;"><?=date('m-d H:i', strtotime($m['created_at']))?></div>
                         <?php if($m['deleted']): ?>
                             <div style="color:#999;font-style:italic">[该消息已撤回]</div>
