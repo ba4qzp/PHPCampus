@@ -1,1 +1,53 @@
+name: AI 审查
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
 
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 三路并发通读
+        shell: bash
+        run: |
+          set +e
+          FILES=$(find . -name '*.php' -not -path './vendor/*')
+          CONTENT=$(cat $FILES)
+          PROMPT="检查以下PHP文件是否存在结构性损坏（尾部重复粘贴、中文关键字、括号不配平）。正常输出OK，有问题输出BROKEN:描述。代码：$CONTENT"
+
+          # 用 jq 安全构造 JSON，避免引号转义炸掉
+          PAYLOAD=$(jq -n --arg p "$PROMPT" '{
+            messages: [{role: "user", content: $p}],
+            max_tokens: 200,
+            temperature: 0
+          }')
+
+          # 三路并发：每个 curl 后面跟 & 放后台
+          curl -s -X POST "https://apihub.agnes-ai.cn/v1/chat/completions" \
+            -H "Authorization: Bearer ${{ secrets.AGNES_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(echo "$PAYLOAD" | jq '. + {model:"agnes-3.0-flash"}')" \
+            > /tmp/agnes.json 2>&1 &
+
+          curl -s -X POST "https://open.bigmodel.cn/api/paas/v4/chat/completions" \
+            -H "Authorization: Bearer ${{ secrets.GLM_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(echo "$PAYLOAD" | jq '. + {model:"glm-4.7-flash"}')" \
+            > /tmp/glm.json 2>&1 &
+
+          curl -s -X POST "https://integrate.api.nvidia.com/v1/chat/completions" \
+            -H "Authorization: Bearer ${{ secrets.NVIDIA_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(echo "$PAYLOAD" | jq '. + {model:"z-ai/glm4.7"}')" \
+            > /tmp/nvidia.json 2>&1 &
+
+          # 等三个全部跑完
+          wait
+
+          echo "════════ 三路并发结果 ════════"
+          echo "🔴 Agnes:  $(jq -r '.choices[0].message.content // .error.message // "API_FAIL"' /tmp/agnes.json 2>/dev/null)"
+          echo "🟡 GLM:    $(jq -r '.choices[0].message.content // .error.message // "API_FAIL"' /tmp/glm.json 2>/dev/null)"
+          echo "🟢 NVIDIA: $(jq -r '.choices[0].message.content // .error.message // "API_FAIL"' /tmp/nvidia.json 2>/dev/null)"
